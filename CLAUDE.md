@@ -28,7 +28,7 @@ El verificador comprueba **integridad, orden, autoría y anterioridad**. No comp
 
 | # | Regla | Razón |
 |---|---|---|
-| **R-1** | El núcleo funciona con **solo la biblioteca estándar de Python** (3.11+). Sin dependencias para las capas 1 y 2. | Un auditor debe poder ejecutarlo en su portátil en dos minutos, sin instalar nada |
+| **R-1** | El núcleo (capas C1–C3) funciona con **solo la biblioteca estándar de Python** y **DEBE ejecutarse en Python 3.9 o superior, sin sintaxis posterior a 3.9**. Sin dependencias. | Un auditor debe poder ejecutarlo en su portátil en dos minutos, sin instalar nada. El auditor no elige su equipo: cuanto más antiguo el suelo de versión, en más máquinas se cumple la promesa. Nosotros mismos vimos en 3.14 una dependencia ya rota por versión |
 | **R-2** | El núcleo **no accede a la red** en ningún caso. La verificación del anclaje es un modo aparte y opcional. | Debe funcionar en entorno aislado. Y un verificador que llama a internet levanta sospechas legítimas |
 | **R-3** | El verificador **no depende de la plataforma WASTRA** en ningún sentido: ni importa su código, ni consulta su API, ni comparte biblioteca. | Si dependiera, dejaría de ser independiente y perdería todo su valor probatorio |
 | **R-4** | **Un solo fichero** para el núcleo (`verificar.py`), legible de principio a fin por un humano no programador. | La auditabilidad del verificador es parte del producto. Alguien debe poder *leerlo*, no solo ejecutarlo |

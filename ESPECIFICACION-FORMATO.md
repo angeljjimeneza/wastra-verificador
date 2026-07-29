@@ -73,7 +73,15 @@ lo que no puede hacer se gana el derecho a que se le crea en lo que sí.
    > dispositivo se conserva íntegra y el desfase entre ambas es visible en la
    > exportación.*
 
-El informe del verificador **DEBE** reproducir esta advertencia. Es la honestidad
+4. **La verificación del anclaje (C4) puede descansar sobre un supuesto de
+   confianza, y ese supuesto se declara.** Para leer las cabeceras de bloque de
+   Bitcoin, C4 consulta por defecto varios exploradores independientes y exige que
+   coincidan; ese modo **confía** en esas fuentes. Con `--nodo-bitcoin`, el auditor
+   usa su propio nodo y **no** confía en terceros. El informe **DEBE** decir cuál
+   modo se usó. Declarar de quién depende la herramienta es lo que separa una
+   herramienta honesta de una que lo oculta (detalle operativo en §11.3).
+
+El informe del verificador **DEBE** reproducir estas advertencias. Es la honestidad
 del sistema, escrita dentro del propio sistema.
 
 ---
@@ -579,15 +587,72 @@ representación hexadecimal. Este es el detalle que más errores de interoperabi
 provoca y se señala aquí de forma expresa.
 
 - La verificación del anclaje es la capa **C4**, **opcional** (`--con-anclaje`), y
-  requiere acceso a la red y a la dependencia externa OpenTimestamps. El núcleo del
-  verificador (C1–C3) **no accede a la red** en ningún caso.
+  requiere acceso a la red. El núcleo del verificador (C1–C3) **no accede a la red**
+  en ningún caso.
 - C4 devuelve el **momento acreditado**: el instante antes del cual la raíz —y por
   tanto todos los eventos de ese día— existía ya en el registro.
 - El día que corresponde a cada evento se determina por su **`ts_servidor` en UTC**
   (§13), no por `ts_dispositivo`.
 
-C4 detecta que una raíz nunca fue anclada, o que se ancló después de lo declarado, o
-que se ha sustituido la prueba por la de otro día.
+### 11.1 Arquitectura de C4 — sin CLI ni `python-bitcoinlib`
+
+**Decisión firme:** C4 se construye sobre la **librería núcleo `opentimestamps`** más
+una **fuente independiente de cabeceras de bloque de Bitcoin**. **NO** depende del
+ejecutable `ots` ni de `python-bitcoinlib`.
+
+**Fundamento:** si la verificación completa exigiera que el auditor hiciera funcionar
+`python-bitcoinlib` + OpenSSL en su máquina, la promesa *«ejecútelo usted mismo»*
+quedaría condicionada a una dependencia frágil. Se comprobó de primera mano que esa
+cadena de dependencias no arranca en un entorno reciente (Windows + Python moderno:
+`python-bitcoinlib` no localiza OpenSSL y aborta la importación). Una promesa de
+independencia no puede descansar sobre algo que se rompe al cambiar de máquina.
+
+### 11.2 Tres estados de anclaje
+
+C4 **no** es aprobado/fallido. Para cada día, informa **uno de tres estados**:
+
+| Estado | Significado |
+|---|---|
+| **SIN ANCLA** | No hay `.ots` para ese día. No hay nada que verificar. |
+| **PENDIENTE** | La prueba se envió a un calendario pero **aún no está confirmada en Bitcoin**. El informe **DEBE** decir explícitamente que esto **acredita el envío al calendario, NO todavía anterioridad independiente**. |
+| **CONFIRMADO** | La prueba lleva **atestación Bitcoin**; C4 devuelve el **momento acreditado** (el bloque y su marca de tiempo). |
+
+**Un estado PENDIENTE presentado como verificado sería la sobreafirmación más grave
+que el sistema podría cometer.** El informe nunca colapsa PENDIENTE en «anclado»:
+son estados distintos con valor probatorio distinto.
+
+Con ello C4 detecta también que una raíz nunca fue anclada (SIN ANCLA), que se ancló
+después de lo declarado, o que se ha sustituido la prueba por la de otro día.
+
+### 11.3 Fuente de cabeceras de bloque — supuesto de confianza declarado
+
+Para obtener las cabeceras de bloque de Bitcoin contra las que se valida la
+atestación, C4 ofrece **dos modos**:
+
+- **Por defecto:** consultar **≥ 2 exploradores independientes** y **exigir
+  coincidencia** entre ellos. Si discrepan, C4 no confirma.
+- **`--nodo-bitcoin`:** usar el **nodo Bitcoin propio del auditor** como única fuente.
+
+El informe **DEBE declarar cuál modo se usó** y advertir que el modo por defecto tiene
+un **supuesto de confianza** en esos exploradores, mientras que el nodo propio no
+depende de terceros. La honestidad sobre *de quién depende la herramienta* está
+recogida además en §2 (Límites declarados).
+
+### 11.4 Proceso de elevación (upgrade) — requisito operativo
+
+Una prueba **PENDIENTE no se convierte sola en CONFIRMADA**. Requiere un **proceso de
+elevación** periódico que recoja del calendario la atestación Bitcoin una vez que la
+raíz ha quedado incluida en un bloque. Sin ese proceso, las anclas quedarían
+**pendientes para siempre**.
+
+- La plataforma **DEBE** ejecutar el proceso de elevación **a diario** y **reintentar
+  hasta lograr la confirmación** de cada ancla.
+- Un paquete **puede reexportarse** con sus anclas ya elevadas: la exportación posterior
+  incluye los `.ots` en estado CONFIRMADO, y un mismo día puede pasar de PENDIENTE a
+  CONFIRMADO entre una exportación y otra.
+- La confirmación en Bitcoin no es instantánea: entre el envío al calendario y la
+  inclusión en un bloque transcurre un tiempo (típicamente horas). El estado PENDIENTE
+  es, por tanto, un estado **normal y transitorio**, no un error.
 
 ---
 
@@ -660,7 +725,7 @@ anterior tiene un límite conocido.
 | **C1 · Estructura** | Manifiesto contrastado con el contenido, ficheros presentes, esquema de cada evento, nivel superior cerrado (diez claves), orden creciente de `eventos.jsonl`, ausencia de flotantes, campos obligatorios, UUID v4, formato de fecha, `tipos_declarados`, `hojas` recomputado, `aviso` literal, integridad de la especificación incrustada (§16.1), coherencia de `merkle/`. | Paquetes malformados, eventos sin autor o desordenados, clave de nivel superior no permitida, `id` duplicado, `tipo` no declarado, `CORRECCION` sin referencia válida, `aviso` alterado, especificación incrustada falsificada. |
 | **C2 · Cadena** | `hash` de cada evento recalculado; `hash_anterior` enlazado; `cadena` del manifiesto; `secuencia` creciente sin huecos. | Modificación, borrado, inserción, reordenación, truncamiento de historia. |
 | **C3 · Merkle** | Cada evento reconstruye la `raiz` declarada por su ruta de inclusión (RFC 6962). | Cadena reconstruida íntegramente pero con raíz distinta. |
-| **C4 · Anclaje** *(opcional)* | Prueba OTS válida sobre los 32 bytes de la raíz; momento acreditado. | Raíz nunca anclada, o anclada después de lo declarado, o prueba sustituida. |
+| **C4 · Anclaje** *(opcional)* | Prueba OTS sobre los 32 bytes de la raíz. Informa **tres estados** (§11.2): **SIN ANCLA**, **PENDIENTE** (enviado al calendario, no confirmado en Bitcoin — no acredita aún anterioridad independiente) y **CONFIRMADO** (atestación Bitcoin, con momento acreditado). | Raíz nunca anclada (SIN ANCLA), anclada después de lo declarado, o prueba sustituida. |
 
 El argumento, que **DEBE** quedar explícito en el informe y en el README: un atacante
 con acceso total a la base de datos puede recalcular toda la cadena (supera C2),
