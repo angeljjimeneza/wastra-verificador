@@ -1,0 +1,54 @@
+# .gitattributes · wastra-verificador
+#
+# Objetivo: reproducibilidad byte a byte de las huellas SHA-256 entre
+# Windows, Linux y macOS. Una conversión CRLF <-> LF alteraría los bytes
+# de `eventos.jsonl`, de `manifiesto.json` o de `ESPECIFICACION-FORMATO.md`
+# y con ello rompería toda la cadena probatoria: el hash de cada evento
+# cambiaría, la raíz de Merkle también, y el anclaje dejaría de coincidir.
+#
+# Regla general: todo el texto se almacena y se entrega con finales LF.
+# Regla dura: los ficheros probatorios (.ots, .zip) son binarios opacos
+# y git no debe reescribirlos por ningún motivo.
+#
+# ADVERTENCIA SOBRE EL BOM: .gitattributes controla los finales de línea
+# (CRLF <-> LF), pero NO controla el BOM (marca de orden de bytes). Todo
+# fichero de la cadena probatoria va en UTF-8 SIN BOM. En Python, siempre
+# encoding="utf-8", nunca "utf-8-sig". Un BOM añade 3 bytes (EF BB BF) al
+# inicio del fichero y altera su SHA-256 sin que nada en el diff lo indique:
+# el fichero se ve idéntico y su huella es distinta. Es una fuente de
+# irreproducibilidad silenciosa, y por eso se advierte aquí de forma expresa.
+#
+# PAQUETES CORROMPIDOS DEL BANCO DE ATAQUES: se generan en tiempo de
+# ejecución a partir de un paquete válido; NUNCA se almacenan como ficheros
+# del repositorio. Un .zip corrupto versionado sería datos de prueba opacos,
+# imposibles de auditar leyendo el repositorio, y contradiría el principio
+# de que todo lo probatorio debe poder leerse, no solo ejecutarse.
+
+# --- Por defecto: texto normalizado a LF -------------------------------
+* text=auto eol=lf
+
+# --- Texto explícito (redundante, pero deja rastro de la intención) ----
+*.py            text eol=lf
+*.md            text eol=lf
+*.json          text eol=lf
+*.jsonl         text eol=lf
+*.txt           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.toml          text eol=lf
+*.cfg           text eol=lf
+*.ini           text eol=lf
+*.sh            text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+LICENSE         text eol=lf
+
+# --- Binarios: nunca reescribir ni normalizar --------------------------
+# .ots es la prueba OpenTimestamps sobre los 32 bytes de la raíz de Merkle.
+# .zip es el propio paquete exportado; su huella depende de sus bytes.
+*.ots           binary
+*.zip           binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.pdf           binary
