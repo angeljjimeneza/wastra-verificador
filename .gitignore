@@ -18,3 +18,12 @@ venv/
 # su contenido procede de ficheros que no controlamos (ver §14 de la
 # especificación, anti zip-slip y bomba de descompresión).
 /tmp-verificacion/
+
+# --- Registro de anclaje y evidencias (METADATOS SENSIBLES) -----------------
+# El registro contiene NOMBRES y HUELLAS de documentos internos de gobernanza.
+# wastra-verificador es Apache-2.0 y acabará publicado: versionarlo sería una
+# fuga. Su lugar es la bóveda documental, FUERA del repo (ver herramientas/
+# anclar.py y elevar.py, parámetro --registro). Estas reglas son la última red
+# de seguridad por si alguna copia cae dentro del árbol del repositorio.
+REGISTRO-ANCLAJE.jsonl
+/evidencias-preelevacion/
