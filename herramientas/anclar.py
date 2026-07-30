@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ancla ficheros con OpenTimestamps: convierte el anclaje manual en proceso.
+r"""Ancla ficheros con OpenTimestamps: convierte el anclaje manual en proceso.
 
 Para cada fichero recibido:
   - calcula su SHA-256,
@@ -17,8 +17,17 @@ Una prueba recién creada queda PENDIENTE: hay que elevarla luego con
 
 ⚠ EL REGISTRO CONTIENE METADATOS POTENCIALMENTE SENSIBLES (nombres y huellas de
 los ficheros anclados) y NO DEBE VERSIONARSE EN UN REPOSITORIO PÚBLICO. Su
-lugar es la bóveda documental. Por eso el valor por defecto de --registro está
-FUERA del repositorio y REGISTRO-ANCLAJE.jsonl está en .gitignore.
+lugar es la BÓVEDA DOCUMENTAL (volumen redundante), no el disco del sistema:
+es hoy el artefacto NO reproducible más valioso del proyecto — si se pierde, no
+se puede reconstruir. Por eso el valor por defecto de --registro apunta a la
+bóveda (F:\BOVEDA\...) y REGISTRO-ANCLAJE.jsonl está en .gitignore.
+
+REGLA OPERATIVA — ANCLAR EL PROPIO REGISTRO: un registro de anclas que no está
+anclado se puede reescribir. El REGISTRO-ANCLAJE.jsonl se ancla con esta misma
+herramienta UNA VEZ POR SEMANA. Al ser solo-anexar, cada ancla nueva cubre todo
+lo anterior:
+
+    py -3 herramientas/anclar.py "F:\BOVEDA\01-PROYECTOS\HITO\04-EVIDENCIAS\REGISTRO-ANCLAJE.jsonl"
 
 Construido sobre la librería núcleo `opentimestamps` (no el CLI ni
 python-bitcoinlib, §11.1). Compatible con Python 3.9+. Uso:
@@ -37,9 +46,10 @@ from opentimestamps.core.serialize import StreamSerializationContext
 from opentimestamps.calendar import RemoteCalendar
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Por defecto, FUERA del repositorio (un nivel por encima). El registro es la
-# contrapartida documental y va en la bóveda, no en el repo público.
-DEFAULT_REGISTRO = os.path.join(os.path.dirname(_RAIZ), "REGISTRO-ANCLAJE.jsonl")
+# Por defecto, en la BÓVEDA DOCUMENTAL (volumen redundante), NO en el disco del
+# sistema ni en el repo. Si esta ruta aún no existe en esta máquina, debe
+# apuntarse a la bóveda real con --registro; nunca dejarlo en C:.
+DEFAULT_REGISTRO = r"F:\BOVEDA\01-PROYECTOS\HITO\04-EVIDENCIAS\REGISTRO-ANCLAJE.jsonl"
 
 # Calendarios públicos independientes. Se envía a todos; se exige que respondan
 # al menos DOS (§11.3, §11.4).

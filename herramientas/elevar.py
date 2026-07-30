@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Eleva (upgrade) pruebas OpenTimestamps: recoge la atestación Bitcoin del
+r"""Eleva (upgrade) pruebas OpenTimestamps: recoge la atestación Bitcoin del
 calendario una vez la raíz ha quedado incluida en un bloque.
 
 Recorre los `.ots` de una o varias rutas y, para cada uno, informa:
@@ -12,7 +12,13 @@ la elevación lo ha completado, y solo si no se pasó --no-escribir.
 
 ⚠ EL REGISTRO CONTIENE METADATOS POTENCIALMENTE SENSIBLES (nombres y huellas de
 los ficheros) y NO DEBE VERSIONARSE EN UN REPOSITORIO PÚBLICO. Su lugar es la
-bóveda documental; el valor por defecto de --registro está FUERA del repo.
+BÓVEDA DOCUMENTAL (volumen redundante), no el disco del sistema; el valor por
+defecto de --registro apunta a la bóveda (F:\BOVEDA\...).
+
+AVISO DE PENDIENTE PROLONGADO: si un `.ots` sigue PENDIENTE más de 3 días desde
+su anclaje (se usa la fecha de modificación del `.ots` como referencia), se
+emite un AVISO destacado. Una tarea programada que falla en silencio es peor
+que no tenerla: el aviso es lo que hace que el silencio deje de ser ambiguo.
 
 Construido sobre la librería núcleo `opentimestamps` (no el CLI ni
 python-bitcoinlib, §11.1). Para el momento acreditado, por defecto consulta
@@ -27,6 +33,7 @@ import datetime
 import json
 import os
 import sys
+import time
 import urllib.request
 
 from opentimestamps.core.timestamp import DetachedTimestampFile, Timestamp
@@ -41,9 +48,13 @@ from opentimestamps.core.notary import (
 from opentimestamps.calendar import RemoteCalendar
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Por defecto FUERA del repositorio (un nivel por encima): el registro va en la
-# bóveda documental, no en el repo público.
-DEFAULT_REGISTRO = os.path.join(os.path.dirname(_RAIZ), "REGISTRO-ANCLAJE.jsonl")
+# Por defecto, en la BÓVEDA DOCUMENTAL (volumen redundante), NO en el disco del
+# sistema ni en el repo. Si no existe en esta máquina, apuntar con --registro.
+DEFAULT_REGISTRO = r"F:\BOVEDA\01-PROYECTOS\HITO\04-EVIDENCIAS\REGISTRO-ANCLAJE.jsonl"
+
+# Umbral de aviso: un .ots pendiente más de estos días desde su anclaje
+# (referencia: fecha de modificación del .ots) dispara un AVISO destacado.
+DIAS_AVISO_PENDIENTE = 3
 
 # Exploradores independientes. Cada uno devuelve (hash_bloque, ts_unix). Se
 # exige que AL MENOS DOS respondan y COINCIDAN en el hash (§11.3).
@@ -213,6 +224,14 @@ def procesar(ruta_ots, escribir=True, nodo_bitcoin=None, timeout=25):
                 u = a.uri.decode("utf-8") if isinstance(a.uri, bytes) else a.uri
                 pend.append(u)
         r["pendientes"] = pend
+        # Aviso de pendiente prolongado: referencia = mtime del .ots.
+        try:
+            edad_dias = (time.time() - os.path.getmtime(ruta_ots)) / 86400.0
+            r["edad_dias"] = round(edad_dias, 1)
+            if edad_dias > DIAS_AVISO_PENDIENTE:
+                r["aviso_pendiente"] = True
+        except OSError:
+            pass
     return r
 
 
@@ -257,6 +276,7 @@ def main(argv):
     print("Anclas a elevar:", len(ots), "| escritura:",
           "DESACTIVADA (sondeo)" if args.no_escribir else "activada")
     conteo = {"CONFIRMADO": 0, "PENDIENTE": 0, "ERROR": 0}
+    avisos = 0
     for ruta in ots:
         r = procesar(ruta, escribir=not args.no_escribir,
                      nodo_bitcoin=args.nodo_bitcoin, timeout=args.timeout)
@@ -268,6 +288,14 @@ def main(argv):
             print("   detalle:", r.get("detalle"))
         elif r["estado"] == "PENDIENTE":
             print("   pendientes en:", ", ".join(r.get("pendientes", [])))
+            if r.get("edad_dias") is not None:
+                print("   días desde el anclaje (mtime del .ots):", r["edad_dias"])
+            if r.get("aviso_pendiente"):
+                avisos += 1
+                print("   " + "!" * 60)
+                print("   !!! AVISO: PENDIENTE MÁS DE " + str(DIAS_AVISO_PENDIENTE)
+                      + " DÍAS. Revise el anclaje: puede que nunca se confirme.")
+                print("   " + "!" * 60)
         else:
             print("   ", r.get("detalle"))
         if (not args.no_escribir and r.get("cambiado")
@@ -287,6 +315,9 @@ def main(argv):
     if not args.no_escribir:
         print("registro:", args.registro)
     print("RESUMEN:", dict(conteo))
+    if avisos:
+        print("AVISO: " + str(avisos) + " ancla(s) llevan más de "
+              + str(DIAS_AVISO_PENDIENTE) + " días PENDIENTES — requieren atención.")
     return 0
 
 
