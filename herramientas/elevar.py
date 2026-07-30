@@ -16,9 +16,13 @@ BÓVEDA DOCUMENTAL (volumen redundante), no el disco del sistema; el valor por
 defecto de --registro apunta a la bóveda (F:\BOVEDA\...).
 
 AVISO DE PENDIENTE PROLONGADO: si un `.ots` sigue PENDIENTE más de 3 días desde
-su anclaje (se usa la fecha de modificación del `.ots` como referencia), se
-emite un AVISO destacado. Una tarea programada que falla en silencio es peor
-que no tenerla: el aviso es lo que hace que el silencio deje de ser ambiguo.
+su anclaje, se emite un AVISO destacado. La edad se mide con el `ts_anclaje`
+registrado en el REGISTRO-ANCLAJE.jsonl; solo si no hay entrada en el registro
+se recurre al `mtime` del `.ots` (y se indica en la salida). El `mtime` es
+frágil —cambia al copiar, mover o sincronizar el fichero— y no debe ser la
+única referencia: un traslado del proyecto apagaría el aviso en silencio, que
+es justo el fallo que este aviso existe para impedir. Una tarea programada que
+falla en silencio es peor que no tenerla.
 
 Construido sobre la librería núcleo `opentimestamps` (no el CLI ni
 python-bitcoinlib, §11.1). Para el momento acreditado, por defecto consulta
@@ -83,6 +87,59 @@ EXPLORADORES = [
 def _ahora_utc():
     return datetime.datetime.now(datetime.timezone.utc).strftime(
         "%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _parse_iso(s):
+    """Convierte 'AAAA-MM-DDTHH:MM:SS.mmmZ' a epoch UTC, o None."""
+    try:
+        dt = datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%S.%fZ")
+        return dt.replace(tzinfo=datetime.timezone.utc).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
+def _ts_anclaje_registrado(ruta_ots, ruta_registro):
+    """Busca en el registro el ts_anclaje de este .ots (o de su fichero
+    original). Devuelve el epoch más temprano encontrado, o None."""
+    if not ruta_registro or not os.path.isfile(ruta_registro):
+        return None
+    base_ots = os.path.basename(ruta_ots)
+    base_orig = base_ots[:-4] if base_ots.lower().endswith(".ots") else base_ots
+    mejor = None
+    try:
+        with open(ruta_registro, encoding="utf-8") as f:
+            for linea in f:
+                linea = linea.strip()
+                if not linea:
+                    continue
+                try:
+                    e = json.loads(linea)
+                except ValueError:
+                    continue
+                if "ts_anclaje" not in e:
+                    continue
+                if e.get("ots") == base_ots or e.get("fichero") in (base_ots, base_orig):
+                    t = _parse_iso(e["ts_anclaje"])
+                    if t is not None and (mejor is None or t < mejor):
+                        mejor = t
+    except OSError:
+        return None
+    return mejor
+
+
+def _edad_pendiente(ruta_ots, ruta_registro):
+    """Edad de la prueba pendiente, en días, y la referencia usada.
+
+    Prioridad: ts_anclaje del registro (robusto ante copias/traslados). Solo si
+    no hay entrada se recurre al mtime del .ots, que es frágil."""
+    ts = _ts_anclaje_registrado(ruta_ots, ruta_registro)
+    if ts is not None:
+        return (time.time() - ts) / 86400.0, "ts_anclaje del registro"
+    try:
+        mtime = os.path.getmtime(ruta_ots)
+    except OSError:
+        return None, None
+    return (time.time() - mtime) / 86400.0, "mtime del .ots (SIN entrada en el registro)"
 
 
 # --- Elevación (replica de `ots upgrade` sobre el núcleo) -------------------
@@ -191,7 +248,7 @@ def _escribir(ruta_ots, det):
         det.serialize(StreamSerializationContext(f))
 
 
-def procesar(ruta_ots, escribir=True, nodo_bitcoin=None, timeout=25):
+def procesar(ruta_ots, escribir=True, nodo_bitcoin=None, timeout=25, ruta_registro=None):
     r = {"fichero": ruta_ots}
     try:
         det = _leer(ruta_ots)
@@ -224,14 +281,14 @@ def procesar(ruta_ots, escribir=True, nodo_bitcoin=None, timeout=25):
                 u = a.uri.decode("utf-8") if isinstance(a.uri, bytes) else a.uri
                 pend.append(u)
         r["pendientes"] = pend
-        # Aviso de pendiente prolongado: referencia = mtime del .ots.
-        try:
-            edad_dias = (time.time() - os.path.getmtime(ruta_ots)) / 86400.0
+        # Aviso de pendiente prolongado: referencia = ts_anclaje del registro,
+        # y solo mtime como último recurso (frágil ante copias/traslados).
+        edad_dias, referencia = _edad_pendiente(ruta_ots, ruta_registro)
+        if edad_dias is not None:
             r["edad_dias"] = round(edad_dias, 1)
+            r["referencia_edad"] = referencia
             if edad_dias > DIAS_AVISO_PENDIENTE:
                 r["aviso_pendiente"] = True
-        except OSError:
-            pass
     return r
 
 
@@ -279,7 +336,8 @@ def main(argv):
     avisos = 0
     for ruta in ots:
         r = procesar(ruta, escribir=not args.no_escribir,
-                     nodo_bitcoin=args.nodo_bitcoin, timeout=args.timeout)
+                     nodo_bitcoin=args.nodo_bitcoin, timeout=args.timeout,
+                     ruta_registro=args.registro)
         conteo[r["estado"]] = conteo.get(r["estado"], 0) + 1
         print("-" * 78)
         print(r["estado"], "-", ruta)
@@ -289,7 +347,8 @@ def main(argv):
         elif r["estado"] == "PENDIENTE":
             print("   pendientes en:", ", ".join(r.get("pendientes", [])))
             if r.get("edad_dias") is not None:
-                print("   días desde el anclaje (mtime del .ots):", r["edad_dias"])
+                print("   días desde el anclaje (%s): %s"
+                      % (r.get("referencia_edad", "?"), r["edad_dias"]))
             if r.get("aviso_pendiente"):
                 avisos += 1
                 print("   " + "!" * 60)
