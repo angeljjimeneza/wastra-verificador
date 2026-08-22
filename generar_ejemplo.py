@@ -233,12 +233,41 @@ def _dia_utc(ts_servidor):
     return ts_servidor[:10]
 
 
+# --- Adjuntos de ejemplo (extension 1.1) ------------------------------------
+# Dos "fotografias": el display de la bascula y la matricula del camion. No son
+# imagenes reales: son bytes deterministas, para que el paquete de ejemplo sea
+# reproducible byte a byte. Lo que importa aqui es la atadura, no el pixel.
+_ADJUNTOS = {
+    "bascula": b"WASTRA-DEMO-FOTO-DISPLAY-BASCULA-1234500g" + bytes(range(64)),
+    "matricula": b"WASTRA-DEMO-FOTO-MATRICULA-CAMION-A12BCD" + bytes(range(64, 128)),
+}
+
+
+def _ficha_adjunto(clave, nombre):
+    datos = _ADJUNTOS[clave]
+    return {
+        "sha256": sha256_hex(datos),
+        "nombre": nombre,
+        "tipo_mime": "image/jpeg",
+        "bytes": len(datos),
+    }
+
+
 def construir_eventos():
     """Encadena la plantilla en eventos completos, con secuencia global desde 1,
     hash_anterior enlazado y hash calculado excluyendo la propia clave."""
     eventos = []
     hash_anterior = CEROS
+    primer_pesaje = True
     for i, base in enumerate(_PLANTILLA, start=1):
+        if base["tipo"] == "PESAJE" and primer_pesaje:
+            primer_pesaje = False
+            base = dict(base)
+            base["payload"] = dict(base["payload"])
+            base["payload"]["adjuntos"] = [
+                _ficha_adjunto("bascula", "display-bascula.jpg"),
+                _ficha_adjunto("matricula", "matricula-camion.jpg"),
+            ]
         evento = {
             "id": base["id"],
             "secuencia": i,
@@ -301,11 +330,12 @@ def construir_manifiesto(eventos, dias, spec_bytes):
 
     return {
         "formato": "wastra-export",
-        "version": "1.0",
+        "version": "1.1",
         "generado_en": "2026-09-02T18:05:00.000Z",
         "generador": "generar_ejemplo.py · datos ficticios",
         "rango": {"desde": dias[0], "hasta": dias[-1]},
         "num_eventos": len(eventos),
+        "num_adjuntos": len(_ADJUNTOS),
         "dias": dias,
         "tipos_declarados": TIPOS_DECLARADOS,
         "cadena": {
@@ -347,6 +377,9 @@ def generar(salida):
         z.writestr("eventos/eventos.jsonl", lineas)
         for dia in dias:
             z.writestr("merkle/" + dia + ".json", canonico(merkles[dia]))
+        # adjuntos/<sha256>: el nombre del fichero ES su huella (§A).
+        for datos_adj in _ADJUNTOS.values():
+            z.writestr("adjuntos/" + sha256_hex(datos_adj), datos_adj)
         # Sin anclas/*.ots: el anclaje (C4) es un módulo posterior; no se
         # fabrica una prueba OpenTimestamps ficticia (§11).
 

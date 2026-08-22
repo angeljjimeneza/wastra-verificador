@@ -43,6 +43,8 @@ import zipfile
 VERSION = "1.1.0"
 FORMATO = "wastra-export"
 VERSION_FORMATO = "1.0"
+# La 1.1 anade adjuntos/ (§A). Todo paquete 1.0 valido sigue siendolo.
+VERSIONES_SOPORTADAS = ("1.0", "1.1")
 
 # El aviso lo lleva el verificador compilado en su codigo. Nunca se imprime el
 # del paquete: el informe es la voz del verificador, no un canal para que un
@@ -66,6 +68,7 @@ CLAVES_EVENTO = frozenset([
 RUTA_MANIFIESTO = "manifiesto.json"
 RUTA_ESPEC = "ESPECIFICACION-FORMATO.md"
 RUTA_EVENTOS = "eventos/eventos.jsonl"
+PREFIJO_ADJUNTOS = "adjuntos/"
 
 # Limites de seguridad al abrir el ZIP (§14). Un paquete no deberia acercarse
 # ni de lejos a estos valores; existen para que un fichero hostil no agote la
@@ -375,6 +378,8 @@ def capa_c1(contenido, estricto):
             continue
         if nombre.startswith("anclas/") and nombre.endswith(".ots"):
             continue
+        if nombre.startswith(PREFIJO_ADJUNTOS):
+            continue
         msg = "fichero inesperado dentro del paquete: %s" % nombre
         if estricto:
             c.fallo(msg)
@@ -398,9 +403,11 @@ def capa_c1(contenido, estricto):
     if manifiesto.get("formato") != FORMATO:
         c.fallo("el paquete no declara el formato wastra-export",
                 declarado=manifiesto.get("formato"))
-    if str(manifiesto.get("version")) != VERSION_FORMATO:
+    version_paquete = str(manifiesto.get("version"))
+    if version_paquete not in VERSIONES_SOPORTADAS:
         c.fallo("versión de formato no soportada por este verificador",
-                declarado=manifiesto.get("version"), soportada=VERSION_FORMATO)
+                declarado=manifiesto.get("version"),
+                soportadas=list(VERSIONES_SOPORTADAS))
 
     if manifiesto.get("aviso") != AVISO_CANONICO:
         c.fallo("el aviso obligatorio del manifiesto no coincide, carácter a "
@@ -647,9 +654,123 @@ def capa_c1(contenido, estricto):
                 c.fallo("faltan pruebas de inclusión para eventos del día",
                         fichero=nombre, ids=faltan[:5])
 
-    c.cerrar("%d eventos, %d día%s" % (len(eventos), len(dias_reales),
-                                       "" if len(dias_reales) == 1 else "s"))
+    n_adjuntos = _verificar_adjuntos(contenido, eventos, version_paquete, manifiesto, c)
+    datos["n_adjuntos"] = n_adjuntos
+
+    resumen = "%d eventos, %d día%s" % (len(eventos), len(dias_reales),
+                                        "" if len(dias_reales) == 1 else "s")
+    if n_adjuntos:
+        resumen += ", %d adjunto%s" % (n_adjuntos, "" if n_adjuntos == 1 else "s")
+    c.cerrar(resumen)
     return c, datos
+
+
+def _verificar_adjuntos(contenido, eventos, version_paquete, manifiesto, c):
+    """Comprueba la carpeta adjuntos/ — extensión wastra-export/1.1.
+
+    Un pesaje tecleado vale lo que valga la palabra de quien lo teclea. La
+    fotografía del display de la báscula es lo que permite reconstruir el dato
+    si alguien lo discute. Pero una foto suelta no prueba nada: tiene que estar
+    **atada a la cadena**, y esa atadura es su huella dentro del evento.
+
+    Diseño, y el porqué de cada decisión:
+
+    - Los adjuntos se **direccionan por contenido**: el fichero se llama
+      `adjuntos/<sha256>` (sin extensión). Así el nombre ES la huella: no hay
+      colisiones de nombre, no hay dos ficheros distintos disputándose el mismo
+      sitio, y no hay que confiar en ningún índice.
+    - En el evento, dentro de `payload`, la clave reservada `adjuntos` es una
+      lista de `{"sha256", "nombre", "tipo_mime", "bytes"}`. `nombre` es lo que
+      el terminal llamó al fichero y **no** determina dónde vive.
+    - `adjuntos` es la **segunda y última palabra reservada** dentro de
+      `payload`, junto a `corrige_evento_id`. Es una excepción deliberada a la
+      regla de que el verificador no mira dentro de `payload` (§8.6): sin ella
+      no habría forma de atar una fotografía a la cadena, y una prueba que no
+      se puede atar no es una prueba.
+    - **No sobra ni falta ninguno.** Un adjunto declarado que no está es fallo;
+      un fichero en `adjuntos/` que nadie declara, también. Un paquete no es un
+      sitio donde dejar cosas sueltas.
+
+    Devuelve el número de adjuntos verificados.
+    """
+    presentes = {n[len(PREFIJO_ADJUNTOS):]: contenido[n]
+                 for n in contenido if n.startswith(PREFIJO_ADJUNTOS)}
+    declarados = {}
+    hay_declaraciones = False
+
+    for reg in eventos:
+        ev = reg["ev"]
+        payload = ev.get("payload")
+        if not isinstance(payload, dict) or "adjuntos" not in payload:
+            continue
+        hay_declaraciones = True
+        lista = payload.get("adjuntos")
+        if not isinstance(lista, list):
+            c.fallo("payload.adjuntos debe ser una lista", linea=reg["n"], id=ev.get("id"))
+            continue
+        for a in lista:
+            if not isinstance(a, dict):
+                c.fallo("entrada de adjunto que no es un objeto", linea=reg["n"])
+                continue
+            h = a.get("sha256")
+            if not isinstance(h, str) or not RE_HEX64.match(h or ""):
+                c.fallo("adjunto sin sha256 hexadecimal de 64 caracteres",
+                        linea=reg["n"], nombre=a.get("nombre"))
+                continue
+            declarados.setdefault(h, []).append((reg["n"], ev.get("id"), a))
+
+    if hay_declaraciones and version_paquete == "1.0":
+        c.fallo("el paquete declara adjuntos pero se anuncia como formato 1.0; "
+                "los adjuntos son una extensión de la versión 1.1")
+
+    if presentes and not hay_declaraciones:
+        c.fallo("hay ficheros en adjuntos/ que ningún evento declara",
+                ficheros=sorted(presentes)[:5], total=len(presentes))
+
+    verificados = 0
+    for h, referencias in sorted(declarados.items()):
+        if h not in presentes:
+            linea, ident, _a = referencias[0]
+            c.fallo("un evento declara un adjunto que no está en el paquete: la "
+                    "evidencia fotográfica no acompaña al registro",
+                    linea=linea, id=ident, sha256=h)
+            continue
+        datos_adj = presentes[h]
+        real = sha256_hex(datos_adj)
+        if real != h:
+            linea, ident, _a = referencias[0]
+            c.fallo("el contenido de un adjunto no coincide con la huella que el "
+                    "evento declara: la fotografía fue sustituida después del "
+                    "registro", linea=linea, id=ident,
+                    declarada=h, recalculada=real)
+            continue
+        for linea, ident, a in referencias:
+            tam = a.get("bytes")
+            if isinstance(tam, int) and not isinstance(tam, bool) and tam != len(datos_adj):
+                c.fallo("el tamaño declarado del adjunto no coincide con el real",
+                        linea=linea, id=ident, declarado=tam, real=len(datos_adj))
+            nombre = a.get("nombre")
+            if nombre is not None and (not isinstance(nombre, str) or not sin_control(nombre)):
+                c.fallo("nombre de adjunto ausente o con caracteres de control",
+                        linea=linea, id=ident)
+        verificados += 1
+
+    huerfanos = sorted(set(presentes) - set(declarados))
+    if huerfanos:
+        c.fallo("hay ficheros en adjuntos/ que ningún evento referencia",
+                ficheros=huerfanos[:5], total=len(huerfanos))
+
+    declarado_man = manifiesto.get("num_adjuntos")
+    if declarado_man is not None:
+        if not isinstance(declarado_man, int) or isinstance(declarado_man, bool):
+            c.fallo("num_adjuntos del manifiesto no es un entero")
+        elif declarado_man != len(presentes):
+            c.fallo("el manifiesto declara un número de adjuntos distinto del real",
+                    declarado=declarado_man, real=len(presentes))
+    elif presentes:
+        c.aviso("el paquete lleva adjuntos pero el manifiesto no declara num_adjuntos")
+
+    return verificados
 
 
 # =============================================================================
