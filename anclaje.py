@@ -51,6 +51,7 @@ TIEMPO_ESPERA = 20
 FUENTES = [
     ("blockstream.info", "https://blockstream.info/api"),
     ("mempool.space", "https://mempool.space/api"),
+    ("mempool.emzy.de", "https://mempool.emzy.de/api"),
 ]
 
 
