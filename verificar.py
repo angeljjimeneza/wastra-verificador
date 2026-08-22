@@ -1033,6 +1033,9 @@ def construir_argumentos():
     p.add_argument("paquete", nargs="?", help="fichero .zip a verificar")
     p.add_argument("--con-anclaje", action="store_true",
                    help="verifica también la capa 4 (requiere el módulo de anclaje y red)")
+    p.add_argument("--nodo-bitcoin", metavar="URL",
+                   help="use su propio nodo para las cabeceras de bloque y no "
+                        "confíe en fuentes de terceros")
     p.add_argument("--json", action="store_true", help="salida legible por máquina")
     p.add_argument("--informe", metavar="FICHERO", help="guarda el informe en un fichero")
     p.add_argument("--estricto", action="store_true",
