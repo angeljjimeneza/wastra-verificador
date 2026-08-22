@@ -27,3 +27,4 @@ venv/
 # de seguridad por si alguna copia cae dentro del árbol del repositorio.
 REGISTRO-ANCLAJE.jsonl
 /evidencias-preelevacion/
+exportacion-ejemplo.zip
