@@ -12,8 +12,9 @@ el verificador debe poder ejecutarse sin instalar nada.
 Uso:
     python herramientas/generar_vectores.py
 """
-import json
 import hashlib
+import json
+import sys
 
 CEROS = "0" * 64
 
@@ -156,4 +157,12 @@ def main():
 
 
 if __name__ == "__main__":
+    # UTF-8 en la salida pase lo que pase con la consola: los vectores llevan
+    # acentos y al redirigirlos a un fichero se romperian.
+    for _flujo in (sys.stdout, sys.stderr):
+        if hasattr(_flujo, "reconfigure"):
+            try:
+                _flujo.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
     main()

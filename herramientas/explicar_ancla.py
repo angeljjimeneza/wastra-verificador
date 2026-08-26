@@ -181,4 +181,12 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    # UTF-8 en la salida pase lo que pase con la consola: en Windows no lo es
+    # por defecto, y al redirigir el informe a un fichero los acentos se rompen.
+    for _flujo in (sys.stdout, sys.stderr):
+        if hasattr(_flujo, "reconfigure"):
+            try:
+                _flujo.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
     raise SystemExit(main(sys.argv))
