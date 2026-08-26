@@ -253,6 +253,14 @@ def _ficha_adjunto(clave, nombre):
     }
 
 
+# Qué evento lleva captura instrumental, y cuál discrepó. Se indexa por id
+# para que no dependa del orden de la plantilla.
+MODOS_POR_EVENTO = {
+    "9b2f8c1e-3d4a-4b5c-8e6f-1a2b3c4d5e6f": "concordante",   # 1.er PESAJE
+    "b3d5f7a9-2c4e-4a6b-8d0f-3e5a7c9b1d2f": "discrepante",   # 2.º PESAJE
+}
+
+
 def construir_eventos():
     """Encadena la plantilla en eventos completos, con secuencia global desde 1,
     hash_anterior enlazado y hash calculado excluyendo la propia clave."""
@@ -279,10 +287,20 @@ def construir_eventos():
             "payload": base["payload"],
             "hash_anterior": hash_anterior,
         }
+        # modo_captura (anexo 1.1 §B): undécima clave OPCIONAL. Los dos pesajes
+        # llevan captura instrumental además de la declaración del oráculo; en
+        # el segundo, máquina y persona NO coincidieron.
+        #
+        # El paquete de ejemplo registra a propósito una discrepancia. Un
+        # ejemplo donde todo cuadra siempre enseña menos que uno donde algo no
+        # cuadró y quedó escrito.
+        modo = MODOS_POR_EVENTO.get(base["id"])
+        if modo:
+            evento["modo_captura"] = modo
         h = sha256_hex(canonico(evento))  # hash sobre el evento SIN la clave hash
         evento["hash"] = h
-        # Comprobación: exactamente diez claves de nivel superior (§8.1).
-        assert len(evento) == 10, "el evento no tiene diez claves de nivel superior"
+        # Diez claves de nivel superior, más modo_captura si el evento lo lleva.
+        assert len(evento) in (10, 11), "nivel superior fuera de lo previsto"
         eventos.append(evento)
         hash_anterior = h
     return eventos
@@ -349,7 +367,7 @@ def construir_manifiesto(eventos, dias, spec_bytes):
         "especificacion_sha256": especificacion_sha256,
         "merkle": "RFC6962",
         "anclaje": "OpenTimestamps",
-        "titular": "Angel José Jiménez Álvarez",
+        "titular": "Angel Jose Jimenez Alvarez",
         "aviso": AVISO,
     }
 
@@ -402,4 +420,12 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    # UTF-8 en la salida pase lo que pase con la consola: en Windows no lo es
+    # por defecto, y al redirigir el informe a un fichero los acentos se rompen.
+    for _flujo in (sys.stdout, sys.stderr):
+        if hasattr(_flujo, "reconfigure"):
+            try:
+                _flujo.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
     main(sys.argv)

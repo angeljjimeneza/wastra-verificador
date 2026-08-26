@@ -289,6 +289,51 @@ def a10(c):
     return rehacer_manifiesto(c, evs)
 
 
+@ataque("A-11", "Sustituir una fotografía conservando su nombre",
+        "La foto del contenedor mostraba material peligroso mal segregado. "
+        "Alguien la reemplaza por otra inocua y deja el mismo nombre de "
+        "fichero, para que el evento la siga referenciando.", "C1")
+def a11(c):
+    """El adjunto se direcciona por contenido: el nombre ES la huella.
+
+    Cambiar el contenido y conservar el nombre es, literalmente, mentir sobre
+    la huella. C1 lo ve sin tener que mirar la foto: recalcula el SHA-256 del
+    fichero y no coincide con el nombre que lleva puesto.
+    """
+    nombres = sorted(n for n in c if n.startswith("adjuntos/"))
+    if not nombres:
+        return None                      # el paquete no lleva adjuntos
+    c[nombres[0]] = bytes([137, 80, 78, 71]) + b"fotografia sustituida" * 40
+    return c
+
+
+@ataque("A-12", "Ocultar una discrepancia: cambiar «discrepante» por «concordante»",
+        "La máquina pesó una cosa y el oráculo declaró otra. El evento quedó "
+        "marcado como discrepante. Alguien lo cambia a concordante para que "
+        "nadie abra una no conformidad.", "C2")
+def a12(c):
+    """El ataque que justifica que modo_captura viva en el nivel superior.
+
+    modo_captura entra en la serialización canónica del evento y por tanto en
+    su hash. Cambiar «discrepante» por «concordante» cambia el hash, y C2 lo
+    detecta sin necesidad de saber qué discrepaba.
+
+    Si el atacante recalcula la cadena, cae en C3; si recalcula también las
+    raíces, cae en C4. Es el mismo camino que A-05 y A-06, aplicado al campo
+    que dice si hubo desacuerdo.
+    """
+    evs = eventos_de(c)
+    objetivo = None
+    for ev in evs:
+        if ev.get("modo_captura") == "discrepante":
+            objetivo = ev
+            break
+    if objetivo is None:
+        return None                      # el paquete no registra discrepancias
+    objetivo["modo_captura"] = "concordante"
+    return poner_eventos(c, evs)
+
+
 # =============================================================================
 # Ejecución
 # =============================================================================
@@ -482,4 +527,12 @@ def _envolver(texto, ancho):
 
 
 if __name__ == "__main__":
+    # UTF-8 en la salida pase lo que pase con la consola: en Windows no lo es
+    # por defecto, y al redirigir el informe a un fichero los acentos se rompen.
+    for _flujo in (sys.stdout, sys.stderr):
+        if hasattr(_flujo, "reconfigure"):
+            try:
+                _flujo.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                pass
     sys.exit(main())

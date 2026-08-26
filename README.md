@@ -38,7 +38,7 @@ python verificar.py exportacion-ejemplo.zip
 Salida esperada:
 
 ```
-VERIFICADOR WASTRA v1.1.0 · herramienta independiente
+VERIFICADOR WASTRA v1.2.0 · herramienta independiente
 Paquete: exportacion-ejemplo.zip
 
   [C1] Estructura ............. CORRECTO  9 eventos, 2 días, 2 adjuntos

@@ -40,7 +40,7 @@ import re
 import sys
 import zipfile
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 FORMATO = "wastra-export"
 VERSION_FORMATO = "1.0"
 # La 1.1 anade adjuntos/ (§A). Todo paquete 1.0 valido sigue siendolo.
@@ -64,6 +64,19 @@ CLAVES_EVENTO = frozenset([
     "id", "secuencia", "tipo", "autor_id", "dispositivo_id",
     "ts_dispositivo", "ts_servidor", "payload", "hash_anterior", "hash",
 ])
+
+# modo_captura es la undecima clave OPCIONAL del nivel superior, y solo existe
+# en la 1.1 (anexo §B). Su ausencia equivale a "declarado", que es lo que la 1.0
+# supone: una persona declara y el sistema registra.
+#
+# Va en el nivel superior y no dentro de payload por un motivo concreto: el
+# payload es opaco para el verificador (§8.6), de modo que ahi nadie
+# comprobaria que el valor es uno de los cuatro. Un paquete podria declarar
+# "concordant" o "verificado" y pasar la verificacion sin que nadie lo notase.
+# En el nivel superior el valor esta acotado y se puede informar.
+CLAVE_MODO_CAPTURA = "modo_captura"
+MODOS_CAPTURA = ("declarado", "capturado", "concordante", "discrepante")
+MODO_CAPTURA_POR_DEFECTO = "declarado"
 
 RUTA_MANIFIESTO = "manifiesto.json"
 RUTA_ESPEC = "ESPECIFICACION-FORMATO.md"
@@ -469,12 +482,32 @@ def capa_c1(contenido, estricto):
             continue
 
         claves = set(ev.keys())
-        if claves != CLAVES_EVENTO:
-            sobran = sorted(claves - CLAVES_EVENTO)
-            faltan = sorted(CLAVES_EVENTO - claves)
+        extra = claves - CLAVES_EVENTO
+        lleva_modo = CLAVE_MODO_CAPTURA in extra
+        if lleva_modo:
+            extra = extra - {CLAVE_MODO_CAPTURA}
+        faltan = sorted(CLAVES_EVENTO - claves)
+        if extra or faltan:
             c.fallo("el nivel superior del evento no tiene exactamente las diez "
-                    "claves del formato", linea=n, sobran=sobran, faltan=faltan)
+                    "claves del formato, mas modo_captura opcional en la 1.1",
+                    linea=n, sobran=sorted(extra), faltan=faltan)
             continue
+
+        # modo_captura: opcional, cerrado a cuatro valores, y solo en la 1.1.
+        # Un evento discrepante es un evento VALIDO: se encadena y se ancla
+        # como cualquier otro. No es un fallo del sistema, es el sistema
+        # funcionando — un formato que rechazara las discrepancias estaria
+        # borrando la unica senal que importa.
+        if lleva_modo:
+            if version_paquete == "1.0":
+                c.fallo("el evento lleva modo_captura pero el paquete se anuncia "
+                        "como formato 1.0; modo_captura es una extension de la "
+                        "version 1.1", linea=n, id=ev.get("id"))
+            valor = ev[CLAVE_MODO_CAPTURA]
+            if not isinstance(valor, str) or valor not in MODOS_CAPTURA:
+                c.fallo("modo_captura con un valor que no es uno de los cuatro "
+                        "admitidos", linea=n, id=ev.get("id"),
+                        valor=valor, admitidos=list(MODOS_CAPTURA))
 
         for campo in ("id", "tipo", "autor_id", "dispositivo_id",
                       "ts_dispositivo", "ts_servidor", "hash_anterior", "hash"):
@@ -657,10 +690,24 @@ def capa_c1(contenido, estricto):
     n_adjuntos = _verificar_adjuntos(contenido, eventos, version_paquete, manifiesto, c)
     datos["n_adjuntos"] = n_adjuntos
 
+    # Recuento por modo de captura. El verificador NO juzga las discrepancias
+    # —no mira dentro de payload y no sabe qué discrepa—, pero sí las cuenta y
+    # las dice: un auditor que lee el informe debe enterarse de que existen sin
+    # tener que buscarlas.
+    recuento = {}
+    for reg in eventos:
+        modo = reg["ev"].get(CLAVE_MODO_CAPTURA, MODO_CAPTURA_POR_DEFECTO)
+        if isinstance(modo, str):
+            recuento[modo] = recuento.get(modo, 0) + 1
+    datos["modos_captura"] = recuento
+
     resumen = "%d eventos, %d día%s" % (len(eventos), len(dias_reales),
                                         "" if len(dias_reales) == 1 else "s")
     if n_adjuntos:
         resumen += ", %d adjunto%s" % (n_adjuntos, "" if n_adjuntos == 1 else "s")
+    n_disc = recuento.get("discrepante", 0)
+    if n_disc:
+        resumen += ", %d discrepante%s" % (n_disc, "" if n_disc == 1 else "s")
     c.cerrar(resumen)
     return c, datos
 
@@ -979,6 +1026,21 @@ def informe_texto(nombre_paquete, capas, datos, opciones):
             L.append("       [%s] %s" % (codigo, a))
         L.append("")
 
+    # Las discrepancias no son fallos: son hechos registrados que el auditor
+    # debe conocer. Se dicen aparte, para que no se confundan con un error del
+    # paquete ni se pierdan entre las advertencias.
+    modos = datos.get("modos_captura") or {}
+    n_disc = modos.get("discrepante", 0)
+    if n_disc:
+        L.append("  DISCREPANCIAS REGISTRADAS")
+        L.append("       %d evento%s declara%s modo_captura = discrepante: persona e"
+                 % (n_disc, "" if n_disc == 1 else "s", "" if n_disc == 1 else "n"))
+        L.append("       instrumento registraron el mismo hecho y no coincidieron.")
+        L.append("       No es un fallo del paquete: son discrepancias registradas y")
+        L.append("       conservadas. Qué se hizo con ellas es materia del")
+        L.append("       procedimiento operativo, no de esta herramienta.")
+        L.append("")
+
     if hubo_fallo:
         L.append("VEREDICTO: NO SUPERADA. El paquete no puede darse por íntegro.")
         L.append("Lo señalado arriba indica dónde y en qué consiste la discrepancia.")
@@ -1017,6 +1079,10 @@ def informe_json(nombre_paquete, capas, datos, opciones):
                                     "generador": man.get("generador")},
         "aviso": AVISO_CANONICO,
         "c4_ejecutada": bool(opciones.con_anclaje),
+        # Recuento por modo de captura (anexo 1.1 §B). Se expone tambien en la
+        # salida legible por maquina: un integrador que vigile discrepancias no
+        # deberia tener que analizar el informe de texto para encontrarlas.
+        "modos_captura": datos.get("modos_captura") or {},
     }, ensure_ascii=False, indent=2)
 
 
@@ -1046,7 +1112,31 @@ def construir_argumentos():
     return p
 
 
+def salida_en_utf8():
+    """Fuerza UTF-8 en la salida, pase lo que pase con la consola.
+
+    El informe lleva acentos, y en Windows la consola no usa UTF-8 por defecto.
+    Mientras el informe se mira en pantalla no se nota, pero en cuanto el auditor
+    lo redirige a un fichero o lo canaliza hacia otra herramienta —que es
+    justo lo que hace quien va en serio— los acentos salen rotos y el `--json`
+    deja de poder leerse. Un informe ilegible no acredita nada.
+
+    Se hace aqui, y no en cada `print`, porque la regla debe valer para toda la
+    salida del programa sin depender de que nadie se acuerde.
+    """
+    for flujo in (sys.stdout, sys.stderr):
+        if hasattr(flujo, "reconfigure"):
+            try:
+                flujo.reconfigure(encoding="utf-8")
+            except (ValueError, OSError):
+                # Si la salida ya esta consumida o no admite reconfiguracion,
+                # se sigue: es preferible un informe con acentos dudosos a un
+                # verificador que no arranca.
+                pass
+
+
 def main(argv=None):
+    salida_en_utf8()
     opciones = construir_argumentos().parse_args(argv)
     if not opciones.paquete:
         construir_argumentos().print_help()

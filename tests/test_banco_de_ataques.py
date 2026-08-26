@@ -123,6 +123,8 @@ CASOS_SIN_ANCLAJE = [
     ("A-08", B.a08, {"C1", "C2"}, "truncar el paquete: falta un dia"),
     ("A-09", B.a09, {"C1"}, "CORRECCION a un evento inexistente"),
     ("A-10", B.a10, {"C1"}, "duplicar el id de un evento"),
+    ("A-11", B.a11, {"C1"}, "sustituir un adjunto conservando su nombre"),
+    ("A-12", B.a12, {"C2"}, "cambiar discrepante por concordante"),
 ]
 
 
@@ -337,13 +339,29 @@ def test_evento_sin_autor_cae_en_c1(paquete, tmp_path):
 # Que el banco no se quede corto sin que nadie lo note
 # =============================================================================
 
-def test_el_banco_tiene_los_diez_ataques():
-    """El canon exige diez (§5 de CLAUDE.md). Si alguien anade o quita, que se vea."""
+CANON = ["A-%02d" % i for i in range(1, 11)]        # §5 de CLAUDE.md
+EXTENSIONES_1_1 = ["A-11", "A-12"]                  # adjuntos y modo_captura
+
+
+def test_el_canon_de_diez_ataques_esta_intacto():
+    """Los diez del canon estan todos, y en orden.
+
+    El canon no se toca: si alguien quita uno o los reordena, esta prueba lo
+    dice. Lo que si se puede hacer es anadir extensiones detras, y para eso
+    esta la prueba siguiente.
+    """
     codigos = [a["codigo"] for a in B.ATAQUES]
-    esperados = ["A-%02d" % i for i in range(1, 11)]
-    assert codigos == esperados, (
-        "el banco debe tener exactamente los diez ataques del canon, en orden. "
+    assert codigos[:10] == CANON, (
+        "los diez ataques del canon deben estar al principio y en orden. "
         "Encontrados: %s" % codigos)
+
+
+def test_las_extensiones_van_detras_y_estan_declaradas():
+    """Un ataque nuevo sin declarar aqui es un ataque que nadie ha revisado."""
+    codigos = [a["codigo"] for a in B.ATAQUES]
+    assert codigos[10:] == EXTENSIONES_1_1, (
+        "las extensiones del banco deben ir detras del canon y estar "
+        "declaradas en EXTENSIONES_1_1. Encontradas: %s" % codigos[10:])
 
 
 def test_a06_esta_marcado_como_de_capa_4():
@@ -351,3 +369,110 @@ def test_a06_esta_marcado_como_de_capa_4():
     a la ligera: si alguien la baja a C3, se pierde el argumento."""
     a06 = [a for a in B.ATAQUES if a["codigo"] == "A-06"][0]
     assert a06["esperado"] == "C4"
+
+
+# =============================================================================
+# modo_captura — anexo 1.1 §B
+# =============================================================================
+
+def _con_modo(paquete, tmp_path, modo, version=None, nombre="modo"):
+    """Devuelve un paquete con el primer evento marcado con ese modo_captura.
+
+    Si `modo` es None se elimina la clave. Si `version` se indica, se cambia
+    tambien la version declarada en el manifiesto.
+    """
+    c = B.leer_paquete(paquete)
+    evs = B.eventos_de(c)
+    if modo is None:
+        evs[0].pop("modo_captura", None)
+    else:
+        evs[0]["modo_captura"] = modo
+    evs = B.rehacer_cadena(evs)
+    c = B.poner_eventos(c, evs)
+    c = B.rehacer_merkle(c, evs)
+    c = B.rehacer_manifiesto(c, evs)
+    if version is not None:
+        m = B.manifiesto_de(c)
+        m["version"] = version
+        c = B.poner_manifiesto(c, m)
+    destino = str(tmp_path / ("%s.zip" % nombre))
+    B.escribir_paquete(destino, c)
+    return destino
+
+
+@pytest.mark.parametrize("modo", ["declarado", "capturado", "concordante", "discrepante"])
+def test_los_cuatro_modos_son_validos(paquete, tmp_path, modo):
+    """Los cuatro valores del anexo pasan C1 sin rechistar."""
+    ruta = _con_modo(paquete, tmp_path, modo, nombre="ok_%s" % modo)
+    informe, salida = _verificar(ruta)
+    assert informe is not None
+    assert "C1" not in _capas_en_fallo(informe),         "el modo %s deberia ser valido y no lo es" % modo
+    assert salida == 0
+
+
+def test_un_evento_discrepante_es_valido_y_se_ancla(paquete, tmp_path):
+    """La prueba que fija la doctrina.
+
+    Una discrepancia entre persona e instrumento NO es un error del paquete:
+    es el sistema funcionando. El verificador la acepta, la encadena y la
+    cuenta. Un formato que rechazara las discrepancias estaria borrando la
+    unica senal que importa.
+    """
+    ruta = _con_modo(paquete, tmp_path, "discrepante", nombre="disc")
+    informe, salida = _verificar(ruta)
+    assert informe is not None
+    assert _capas_en_fallo(informe) == set(),         "una discrepancia registrada no puede hacer fallar ninguna capa"
+    assert salida == 0
+    modos = informe.get("modos_captura") or {}
+    assert modos.get("discrepante", 0) >= 1,         "el informe debe decir cuantas discrepancias hay: si no se cuentan, no se ven"
+
+
+def test_modo_captura_invalido_falla_en_c1(paquete, tmp_path):
+    """El valor esta cerrado a cuatro. «verificado» no es uno de ellos."""
+    ruta = _con_modo(paquete, tmp_path, "verificado", nombre="malo")
+    informe, salida = _verificar(ruta)
+    assert informe is not None
+    assert "C1" in _capas_en_fallo(informe)
+    assert salida == 1
+
+
+def test_modo_captura_en_un_paquete_1_0_falla(paquete, tmp_path):
+    """En la 1.0 el nivel superior tiene exactamente diez claves.
+
+    Si un paquete se anuncia como 1.0 y trae la undecima, miente sobre su
+    propia version: se rechaza. Es la misma regla dura de §17.3 — ante una
+    version que no corresponde, el verificador no adivina.
+    """
+    ruta = _con_modo(paquete, tmp_path, "capturado", version="1.0", nombre="v10")
+    informe, salida = _verificar(ruta)
+    assert informe is not None
+    assert "C1" in _capas_en_fallo(informe)
+    assert salida == 1
+
+
+def test_sin_modo_captura_equivale_a_declarado(paquete, tmp_path):
+    """La ausencia es «declarado»: un paquete 1.0 valido sigue siendolo."""
+    ruta = _con_modo(paquete, tmp_path, None, nombre="ausente")
+    informe, salida = _verificar(ruta)
+    assert informe is not None
+    assert _capas_en_fallo(informe) == set()
+    assert salida == 0
+    modos = informe.get("modos_captura") or {}
+    assert modos.get("declarado", 0) >= 1
+
+
+def test_a12_no_es_demostrable_sin_discrepancias(paquete, tmp_path):
+    """Honestidad del banco: si no hay que ocultar, no hay ataque.
+
+    A-12 devuelve None cuando el paquete no registra ninguna discrepancia, y
+    el banco lo declara «no demostrable aqui» en vez de fingir un exito.
+    """
+    c = B.leer_paquete(paquete)
+    evs = B.eventos_de(c)
+    for ev in evs:
+        ev.pop("modo_captura", None)
+    evs = B.rehacer_cadena(evs)
+    c = B.poner_eventos(c, evs)
+    c = B.rehacer_merkle(c, evs)
+    c = B.rehacer_manifiesto(c, evs)
+    assert B.a12(c) is None
