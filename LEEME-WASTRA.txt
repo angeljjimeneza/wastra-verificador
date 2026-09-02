@@ -1,0 +1,40 @@
+WASTRA · verificador público e independiente · v1.2.0
+=====================================================
+
+Qué es
+  Herramienta de código abierto (Apache-2.0) para comprobar, sin cuenta, sin
+  conexión y sin la cooperación de nadie —tampoco de WASTRA—, que un paquete
+  exportado por la plataforma WASTRA (formato wastra-export/1.0) no ha sido
+  alterado.
+
+Qué acredita        integridad · orden · autoría · anterioridad
+Qué NO acredita     que lo declarado sea verdad
+
+Uso
+  python3 verificar.py <paquete.zip>            (Python 3, sin dependencias)
+  python3 verificar.py <paquete.zip> --estricto
+  python3 verificar.py <paquete.zip> --con-anclaje   (capa C4, Bitcoin/OTS)
+  python3 banco_de_ataques.py                   (8 fraudes reproducibles)
+
+Contenido del paquete
+  verificar.py             el verificador (VERSION 1.2.0)
+  anclaje.py               comprobación de anclaje OpenTimestamps
+  banco_de_ataques.py      banco de ataques
+  generar_ejemplo.py       genera un paquete de ejemplo
+  exportacion-ejemplo.zip  paquete de ejemplo válido
+  ESPECIFICACION-FORMATO.md  la especificación normativa del formato
+  DECISIONES-FORMATO.md    decisiones de diseño del formato
+  README.md · LICENSE      (español / English · Apache-2.0)
+  signo-W1.svg             el signo de WASTRA «La Grieta Trazada»
+  SHA256SUMS.txt           huella de cada fichero: compruébelas primero
+
+Identidad
+  WASTRA — Waste & Assets Traceability
+  Registro neutral y verificable de residuos post-catástrofe.
+  Web            https://wastra.global
+  Verificación   https://verify.wastra.global
+  Código         https://github.com/angeljjimeneza/wastra-verificador
+  Contacto       contacto@wastra.global
+  Titular        Angel José Jiménez Álvarez · marca WASTRA (solicitud UE 019406611)
+
+«Cada tonelada cuenta — y se cuenta.»

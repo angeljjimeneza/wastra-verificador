@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 183 1200 830" role="img" aria-label="WASTRA · La Grieta Trazada">
+  <!-- WASTRA · signo W1 «La Grieta Trazada» · (c) 2026 Angel José Jiménez Álvarez · marca WASTRA -->
+  <rect x="0" y="183" width="1200" height="830" fill="#131F1B"/>
+  <polyline points="67,252 185,510 95,625 256,923 586,430 920,930 1130,250"
+            fill="none" stroke="#F4F1EA" stroke-width="64" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="67" cy="252" r="63" fill="#C05B33"/>
+  <circle cx="256" cy="923" r="63" fill="#D9A03F"/>
+  <circle cx="586" cy="430" r="65" fill="#131F1B" stroke="#F4F1EA" stroke-width="26"/>
+  <circle cx="920" cy="930" r="65" fill="#131F1B" stroke="#F4F1EA" stroke-width="26"/>
+  <circle cx="1130" cy="250" r="63" fill="#3E8E7A"/>
+</svg>
