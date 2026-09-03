@@ -138,6 +138,7 @@ Declararlo es lo que separa una herramienta honesta de otra que lo oculta.
 | `tests/` | 31 pruebas, incluidas las de los diez ataques |
 | `herramientas/` | Anclar, elevar, comprobar y explicar pruebas OpenTimestamps |
 | `piloto-v1.0/` | Código de la versión piloto, conservado por su anterioridad. **No es el verificador vigente** |
+| `FIRMA-RELEASES.md` · `wastra_releases.pub` · `FIRMAS/` | Clave pública minisign de releases (ID `89B7533C621B7E47`), cómo verificar cada paquete publicado y las firmas por versión (desde v1.2.0) |
 
 ## Pruebas
 
